@@ -12,9 +12,9 @@ async function generateHandoverDocument(fullText) {
     {
       role: "user",
       content: `다음은 작업 인수인계를 위한 전체 대화 또는 회의 음성 텍스트입니다:\n\n${fullText}\n\n이 내용을 바탕으로 다음 항목을 포함한 인수인계 문서를 작성해줘:
-- 오늘 작업 내용 요약
-- 주의사항 및 참고사항
-- 다음 담당자가 알아야 할 정보`,
+      - 오늘 작업 내용 요약
+      - 주의사항 및 참고사항
+      - 다음 담당자가 알아야 할 정보`,
     },
   ];
 

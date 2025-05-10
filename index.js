@@ -7,8 +7,8 @@ const multer = require("multer");
 const fs = require("fs");
 const path = require("path");
 const axios = require("axios");
+const generateHandoverDocument = require("./summarize/gpt_summarize"); // ✅ GPT 요약 함수
 
-// 🔧 환경변수 사용
 dotenv.config();
 
 const app = express();
@@ -17,7 +17,7 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 5000;
 
-// 📂 uploads 폴더 저장 설정 (Multer)
+// 📂 업로드 파일 저장 설정
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, "uploads/");
@@ -27,7 +27,6 @@ const storage = multer.diskStorage({
     cb(null, uniqueName + path.extname(file.originalname));
   },
 });
-
 const upload = multer({ storage: storage });
 
 // ✅ 기본 라우터
@@ -35,7 +34,7 @@ app.get("/", (req, res) => {
   res.send("Handover.AI 서버가 실행 중입니다.");
 });
 
-// ✅ 1. 파일 업로드 API
+// ✅ 1. 파일 업로드
 app.post("/upload", upload.single("file"), (req, res) => {
   const file = req.file;
   if (!file) {
@@ -44,19 +43,19 @@ app.post("/upload", upload.single("file"), (req, res) => {
 
   res.json({
     message: "파일 업로드 성공",
-    filepath: file.path, // 이걸 /transcribe에 넘기면 됨
+    filepath: file.path,
     filename: file.originalname,
   });
 });
 
-// ✅ 2. Whisper 텍스트 변환 API (Hugging Face 무료 Inference API 사용)
+// ✅ 2. Whisper 텍스트 변환 (Hugging Face Inference API)
 app.post("/transcribe", async (req, res) => {
   try {
     const { filepath } = req.body;
     if (!filepath)
       return res.status(400).json({ message: "filepath가 필요합니다." });
 
-    const audioData = fs.readFileSync(filepath); // 업로드된 음성 파일 읽기
+    const audioData = fs.readFileSync(filepath);
 
     const response = await axios.post(
       "https://api-inference.huggingface.co/models/openai/whisper-medium",
@@ -64,15 +63,18 @@ app.post("/transcribe", async (req, res) => {
       {
         headers: {
           Authorization: `Bearer ${process.env.HUGGINGFACE_API_KEY}`,
-          "Content-Type": "audio/x-m4a", // 필요 시 audio/mpeg 로 변경
+          "Content-Type": "audio/x-m4a",
         },
       }
     );
 
     const resultText = response.data.text || "[변환 결과 없음]";
 
+    // 변환된 텍스트를 output.txt로 저장
+    fs.writeFileSync("output.txt", resultText, "utf-8");
+
     res.json({
-      message: "음성 변환 완료",
+      message: "Whisper 변환 완료",
       text: resultText,
     });
   } catch (error) {
@@ -83,7 +85,31 @@ app.post("/transcribe", async (req, res) => {
   }
 });
 
-// ✅ 서버 실행
+// ✅ 3. GPT 요약 → 인수인계 문서 생성
+app.post("/handover", async (req, res) => {
+  try {
+    const textPath = req.body.textPath || "output.txt";
+
+    if (!fs.existsSync(textPath)) {
+      return res.status(404).json({ error: "output.txt 파일이 없습니다." });
+    }
+
+    const fullText = fs.readFileSync(textPath, "utf-8");
+
+    const summary = await generateHandoverDocument(fullText);
+
+    if (!summary) {
+      return res.status(500).json({ error: "GPT 요약 실패" });
+    }
+
+    res.json({ handover: summary });
+  } catch (error) {
+    console.error("GPT 요약 오류:", error.message);
+    res.status(500).json({ error: "서버 오류" });
+  }
+});
+
+// ✅ 서버 시작
 app.listen(PORT, () => {
   console.log(`✅ 서버 실행 중: http://localhost:${PORT}`);
 });
